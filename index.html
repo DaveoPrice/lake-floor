@@ -112,7 +112,7 @@ input[type=range]{width:100%;accent-color:var(--gold);margin:8px 0 2px}
   <div class="ctl"><span>Exaggeration</span><input id="exag" type="range" min="1" max="120" step="1"><span class="mono" id="exagV"></span></div>
   <div class="ctl"><span>Sun azimuth</span><input id="az" type="range" min="0" max="360" step="1"><span class="mono" id="azV"></span></div>
   <div class="ctl"><span>Sun height</span><input id="el" type="range" min="3" max="80" step="1"><span class="mono" id="elV"></span></div>
-  <div class="note">Elevation comes from AWS Terrain Tiles (Mapzen terrarium, zoom 10, about 115 m per pixel, derived mainly from USGS 3DEP). <b>Local relief</b> is each cell's height minus the average height within about 1 km. It brings out beach ridges and stream cuts that a normal color ramp hides. Lake-stage elevations are approximate. The real shorelines tilt upward to the northeast because the land rose after the ice melted (isostatic rebound).</div>
+  <div class="note">Elevation comes from AWS Terrain Tiles (Mapzen terrarium, zoom 10, about 115 m per pixel, derived mainly from USGS 3DEP). Errors in the source data are cleaned out: <span id="despikeN">a few thousand</span> cells that failed a 5×5 median test or fell outside 140–450 m were refilled from their neighbors. <b>Local relief</b> is each cell's height minus the average height within about 1 km. It brings out beach ridges and stream cuts that a normal color ramp hides. Lake-stage elevations are approximate. The real shorelines tilt upward to the northeast because the land rose after the ice melted (isostatic rebound).</div>
 </section>
 
 <aside id="stages" class="glass">
@@ -165,12 +165,38 @@ async function loadTiles(){
   await Promise.all(jobs);
   const px=cx.getImageData(0,0,W,H).data;heights=new Float32Array(N);
   for(let i=0;i<N;i++)heights[i]=px[i*4]*256+px[i*4+1]+px[i*4+2]/256-32768;
+  despiked=despike();
   // local relief model: h - mean(h) within radius R (integral image)
   const R=9,I=new Float64Array((W+1)*(H+1));
   for(let j=0;j<H;j++){let row=0;for(let i=0;i<W;i++){row+=heights[j*W+i];I[(j+1)*(W+1)+i+1]=I[j*(W+1)+i+1]+row}}
   lrm=new Float32Array(N);
   for(let j=0;j<H;j++){const a=Math.max(0,j-R),b=Math.min(H,j+R+1);for(let i=0;i<W;i++){const c=Math.max(0,i-R),d=Math.min(W,i+R+1);
     const s=I[b*(W+1)+d]-I[a*(W+1)+d]-I[b*(W+1)+c]+I[a*(W+1)+c];lrm[j*W+i]=heights[j*W+i]-s/((b-a)*(d-c))}}
+}
+
+// ---------- remove spikes/pits in the source DEM ----------
+// A cell is bad if it is outside 140–450 m (impossible here) or more than 25 m from its 5×5 median.
+// Bad cells are grown by 2 px to catch cluster edges, then filled inward from good neighbours.
+let despiked=0;
+function despike(){
+  const T=25,LO=140,HI=450,seed=new Uint8Array(N),I=new Float64Array((W+1)*(H+1)),win=new Float64Array(25);
+  for(let j=0;j<H;j++){let row=0;for(let i=0;i<W;i++){row+=heights[j*W+i];I[(j+1)*(W+1)+i+1]=I[j*(W+1)+i+1]+row}}
+  for(let j=0;j<H;j++){const a=Math.max(0,j-2),b=Math.min(H,j+3);for(let i=0;i<W;i++){const k=j*W+i,h=heights[k];
+    if(h<LO||h>HI){seed[k]=1;continue}
+    const c=Math.max(0,i-2),d=Math.min(W,i+3),mean=(I[b*(W+1)+d]-I[a*(W+1)+d]-I[b*(W+1)+c]+I[a*(W+1)+c])/((b-a)*(d-c));
+    if(Math.abs(h-mean)<=8)continue; // cheap pre-filter; only suspicious cells get the median test
+    let n=0;for(let y=a;y<b;y++)for(let x=c;x<d;x++)win[n++]=heights[y*W+x];
+    const s=win.subarray(0,n).sort();if(Math.abs(h-s[n>>1])>T)seed[k]=1}}
+  const mask=new Uint8Array(N);let todo=[];
+  for(let k=0;k<N;k++)if(seed[k]){const j=(k/W)|0,i=k%W;
+    for(let y=Math.max(0,j-2);y<=Math.min(H-1,j+2);y++)for(let x=Math.max(0,i-2);x<=Math.min(W-1,i+2);x++){const q=y*W+x;if(!mask[q]){mask[q]=1;todo.push(q)}}}
+  const count=todo.length;todo.forEach(k=>heights[k]=NaN);
+  while(todo.length){const next=[],upd=[];
+    for(const k of todo){const j=(k/W)|0,i=k%W;let s=0,c=0;
+      for(let y=Math.max(0,j-1);y<=Math.min(H-1,j+1);y++)for(let x=Math.max(0,i-1);x<=Math.min(W-1,i+1);x++){const v=heights[y*W+x];if(v===v){s+=v;c++}}
+      if(c)upd.push(k,s/c);else next.push(k)}
+    if(!upd.length)break;for(let u=0;u<upd.length;u+=2)heights[upd[u]]=upd[u+1];todo=next}
+  return count;
 }
 
 // ---------- three.js scene ----------
@@ -365,6 +391,6 @@ function frame(){
   controls.update();renderer.render(scene,camera);if(ready)placeLabels();
 }
 applyRender();
-loadTiles().then(()=>{build();ready=true;setWater(S.water,false);$('loading').style.opacity=0;frame()})
+loadTiles().then(()=>{$('despikeN').textContent=despiked.toLocaleString();build();ready=true;setWater(S.water,false);$('loading').style.opacity=0;frame()})
   .catch(e=>{$('prog').textContent='Could not load elevation: '+e.message});
 </script></body></html>
