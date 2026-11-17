@@ -4,7 +4,7 @@ An interactive 3D terrain study by **Black Swamp Analytics**.
 
 Northwest Ohio is the bed of glacial lakes that drained away about 14,000 to 12,000 years ago. Their old shorelines survive as sand beach ridges only a few meters high, and the flat lake bed between them became the Great Black Swamp. This page rebuilds the landscape from real elevation data and lets you refill those lakes.
 
-**[Open the live page](index.html)**. It is a single HTML file with no build step.
+**[Open the live page →](https://daveoprice.github.io/lake-floor/)**. It is a single HTML file with no build step.
 
 ## Features
 
