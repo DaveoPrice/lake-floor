@@ -1,0 +1,370 @@
+<!doctype html><html><head><meta charset="utf-8">
+<script>
+// Standalone stand-in for the jelly runtime: same verbs, state kept in the page.
+(()=>{
+const verbs = {
+  set(state, { key, value }) {
+    const rules = {
+      water: v => typeof v === "number" && v >= 160 && v <= 270,
+      exag: v => typeof v === "number" && v >= 1 && v <= 120,
+      az: v => typeof v === "number" && v >= 0 && v <= 360,
+      el: v => typeof v === "number" && v >= 1 && v <= 90,
+      mode: v => ["terrain", "lrm", "both"].includes(v)
+    };
+    if (!rules[key]) throw new Error("unknown setting " + key);
+    if (!rules[key](value)) throw new Error("bad value for " + key);
+    state[key] = value;
+  }
+};
+
+let state={"water": 225, "exag": 30, "az": 300, "el": 18, "mode": "terrain"};const subs=[];
+window.jelly={
+  onState(fn){subs.push(fn);fn(state,{});return()=>subs.splice(subs.indexOf(fn),1)},
+  call(name,args){try{const r=verbs[name](state,args,{by:'viewer',at_ms:Date.now()});if(r!==undefined)state=r;subs.forEach(f=>f(state,{}));return Promise.resolve()}catch(e){return Promise.reject(e)}}
+};
+})();
+</script>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lake Floor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script type="importmap">{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}</script>
+<style>
+:root{--fg:#efe9dc;--muted:#a39d8f;--dim:#6d685d;--glass:rgba(12,14,16,.7);--line:rgba(239,233,220,.10);--gold:#e2b45c;--teal:#5fa3a0;}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;color:var(--fg);font:13px/1.5 Inter,system-ui,sans-serif;overflow:hidden;
+  background:radial-gradient(120% 90% at 50% 15%,#1b2228 0%,#0b0d10 60%,#060708 100%)}
+canvas#gl{position:fixed;inset:0;display:block}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+.glass{background:var(--glass);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid var(--line);border-radius:16px}
+#panel{position:fixed;top:16px;left:16px;width:350px;max-height:calc(100vh - 32px);overflow:auto;padding:20px}
+#panel::-webkit-scrollbar{width:0}
+.brand{font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--gold)}
+h1{font-family:"Instrument Serif",Georgia,serif;font-weight:400;font-size:38px;line-height:1;margin:8px 0 8px;letter-spacing:-.01em}
+h1 em{color:var(--gold)}
+.lede{color:var(--muted);margin:0 0 6px}
+h2{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:18px 0 8px;display:flex;justify-content:space-between}
+.big{font-family:"Instrument Serif",Georgia,serif;font-size:44px;line-height:1}
+.big small{font-family:Inter;font-size:13px;color:var(--muted);margin-left:6px}
+input[type=range]{width:100%;accent-color:var(--gold);margin:8px 0 2px}
+.kv{display:grid;grid-template-columns:1fr auto;gap:4px 10px;margin-top:10px}
+.kv span{color:var(--muted)}.kv b{font-weight:500;text-align:right}
+#hist{width:100%;height:120px;display:block;cursor:crosshair}
+.seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.seg button{all:unset;flex:1;text-align:center;padding:7px 0;cursor:pointer;color:var(--muted);font-size:12px}
+.seg button.on{background:rgba(226,180,92,.16);color:var(--fg)}
+.ctl{display:grid;grid-template-columns:74px 1fr 44px;gap:8px;align-items:center;color:var(--muted);font-size:12px}
+.ctl input{margin:0}
+.note{color:var(--dim);font-size:11px;margin-top:14px}
+#stages{position:fixed;right:16px;top:60px;width:300px;padding:16px 16px 10px}
+#stages ol{list-style:none;margin:0;padding:0}
+#stages li{display:grid;grid-template-columns:10px 1fr auto;gap:10px;align-items:start;padding:8px 8px;margin:0 -8px;border-radius:10px;cursor:pointer}
+#stages li:hover{background:rgba(255,255,255,.05)}
+#stages li.on{background:rgba(226,180,92,.13)}
+#stages li i{width:8px;height:8px;border-radius:50%;margin-top:6px;background:var(--teal)}
+#stages li.on i{background:var(--gold);box-shadow:0 0 0 4px rgba(226,180,92,.2)}
+#stages .nm{font-weight:600}#stages .ds{color:var(--muted);font-size:12px}
+#stages .el{color:var(--muted);font-size:11.5px;text-align:right;white-space:nowrap}
+#play{all:unset;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:10px 0;margin:4px 0 6px;border-radius:10px;background:rgba(226,180,92,.16);color:var(--gold);font-weight:600}
+#play:hover{background:rgba(226,180,92,.26)}
+#caption{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);max-width:min(620px,calc(100vw - 32px));text-align:center;pointer-events:none;transition:opacity .6s}
+#caption .t{font-family:"Instrument Serif",Georgia,serif;font-size:30px;line-height:1.1;text-shadow:0 2px 20px rgba(0,0,0,.8)}
+#caption .s{color:#cfc8b8;text-shadow:0 1px 10px rgba(0,0,0,.9);margin-top:4px}
+#labels{position:fixed;inset:0;pointer-events:none}
+.lbl{position:absolute;transform:translate(-50%,-100%);font-size:11px;font-weight:500;white-space:nowrap;color:#fff;margin-top:-8px}
+.lbl span{display:block;background:rgba(8,10,12,.72);padding:2px 7px;border-radius:6px;border:1px solid rgba(255,255,255,.12)}
+.lbl:after{content:"";position:absolute;left:50%;bottom:-8px;width:5px;height:5px;margin-left:-2.5px;border-radius:50%;background:#fff;box-shadow:0 0 0 2px rgba(0,0,0,.5)}
+.lbl.home{color:var(--gold);font-weight:700}.lbl.home span{border-color:rgba(226,180,92,.7)}.lbl.home:after{background:var(--gold)}
+#loading{position:fixed;inset:0;display:grid;place-items:center;pointer-events:none;transition:opacity 1s}
+#loading div{text-align:center;color:var(--muted);letter-spacing:.2em;font-size:11px;text-transform:uppercase}
+#loading b{display:block;font-family:"Instrument Serif",serif;font-size:28px;letter-spacing:0;text-transform:none;color:var(--fg);font-weight:400;margin-bottom:6px}
+@media (max-width:900px){
+  #panel{left:10px;right:10px;width:auto;top:10px;max-height:44vh;padding:14px}
+  h1{font-size:28px}.lede{display:none}
+  #stages{display:none}
+}
+</style></head><body>
+<canvas id="gl"></canvas>
+<div id="labels"></div>
+<div id="loading"><div><b>Reading the lake floor…</b><span id="prog">0 / 54 elevation tiles</span></div></div>
+
+<section id="panel" class="glass">
+  <div class="brand">Black Swamp Analytics · Terrain study</div>
+  <h1>The <em>Lake Floor</em> under Northwest Ohio</h1>
+  <p class="lede">Northwest Ohio sits on the bed of glacial lakes that drained away about 14,000 to 12,000 years ago. Their old shorelines survive as sand beach ridges only a few meters high. The flat lake bed between them became the Great Black Swamp.</p>
+
+  <h2><span>Water level</span><span id="wlbl" class="mono"></span></h2>
+  <div class="big mono" id="wl">—</div>
+  <input id="water" type="range" min="165" max="262" step="0.5">
+  <div class="kv">
+    <span>Land flooded beyond today's Lake Erie</span><b class="mono" id="sArea">—</b>
+    <span>Share of land in view</span><b class="mono" id="sPct">—</b>
+    <span>That's about</span><b id="sFulton">—</b>
+  </div>
+
+  <h2><span>How flat is it?</span><span class="mono" style="letter-spacing:0;text-transform:none">land area by elevation</span></h2>
+  <canvas id="hist"></canvas>
+  <div class="kv" style="margin-top:6px"><span>Land between 180 and 215 m</span><b class="mono" id="sFlat">—</b></div>
+
+  <h2>Render</h2>
+  <div class="seg" id="mode"><button data-m="terrain">Terrain</button><button data-m="lrm">Local relief</button><button data-m="both">Both</button></div>
+  <div style="height:10px"></div>
+  <div class="ctl"><span>Exaggeration</span><input id="exag" type="range" min="1" max="120" step="1"><span class="mono" id="exagV"></span></div>
+  <div class="ctl"><span>Sun azimuth</span><input id="az" type="range" min="0" max="360" step="1"><span class="mono" id="azV"></span></div>
+  <div class="ctl"><span>Sun height</span><input id="el" type="range" min="3" max="80" step="1"><span class="mono" id="elV"></span></div>
+  <div class="note">Elevation comes from AWS Terrain Tiles (Mapzen terrarium, zoom 10, about 115 m per pixel, derived mainly from USGS 3DEP). <b>Local relief</b> is each cell's height minus the average height within about 1 km. It brings out beach ridges and stream cuts that a normal color ramp hides. Lake-stage elevations are approximate. The real shorelines tilt upward to the northeast because the land rose after the ice melted (isostatic rebound).</div>
+</section>
+
+<aside id="stages" class="glass">
+  <button id="play">▶ Drain the lakes</button>
+  <ol id="stageList"></ol>
+</aside>
+
+<div id="caption"><div class="t" id="capT"></div><div class="s" id="capS"></div></div>
+
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+const $=id=>document.getElementById(id);
+
+// ---------- extent: zoom-10 terrarium tiles over NW Ohio ----------
+const Z=10,X0=269,X1=277,Y0=379,Y1=384,TS=256;
+const ERIE=175.2;
+const W=(X1-X0+1)*TS,H=(Y1-Y0+1)*TS,N=W*H,BASE=160;
+const mercY=lat=>{const r=lat*Math.PI/180;return (1-Math.log(Math.tan(r)+1/Math.cos(r))/Math.PI)/2};
+const toPx=(lat,lng)=>[((lng+180)/360*(1<<Z)-X0)*TS,(mercY(lat)*(1<<Z)-Y0)*TS];
+const rowLat=j=>{const n=Math.PI*(1-2*(Y0+j/TS)/(1<<Z));return Math.atan(Math.sinh(n))*180/Math.PI};
+const MPP=156543.03*Math.cos(41.5*Math.PI/180)/(1<<Z); // metres per pixel at mid-latitude
+
+const STAGES=[
+ {id:'maumee',name:'Lake Maumee',el:244,age:'≈ 14,000 years ago',d:'The first lake, held against the retreating ice. It drained west past present-day Fort Wayne into the Wabash River.'},
+ {id:'whittlesey',name:'Lake Whittlesey',el:225,age:'≈ 13,000 years ago',d:'Its shoreline left a strong beach ridge that runs through Fulton and Williams counties. Early roads followed the dry sand ridge.'},
+ {id:'warren',name:'Lake Warren',el:210,age:'≈ 12,800 years ago',d:'A lower lake that left fainter ridges closer to the present shore.'},
+ {id:'lundy',name:'Lake Lundy',el:195,age:'≈ 12,500 years ago',d:'Its last shoreline sits close to Toledo. As it drained, the flat, poorly drained lake bed was left behind.'},
+ {id:'swamp',name:'Great Black Swamp',el:181,age:'≈ 1700s–1880s',d:'Water no longer stood in a lake but sat on the clay lake bed as a vast forested swamp, until it was drained with ditches and tile.'},
+ {id:'erie',name:'Lake Erie today',el:174,age:'Today',d:'The swamp became some of the most productive farmland in the Midwest. Thousands of miles of county ditches keep it drained.'}];
+
+const TOWNS=[['Toledo',41.654,-83.537],['Wauseon',41.549,-84.142,1],['Archbold',41.521,-84.307],['Defiance',41.284,-84.356],['Napoleon',41.392,-84.125],
+ ['Bowling Green',41.375,-83.651],['Bryan',41.475,-84.552],['Fort Wayne',41.08,-85.139],['Adrian',41.897,-84.037],['Monroe',41.916,-83.397],
+ ['Findlay',41.044,-83.65],['Fremont',41.35,-83.121],['Sandusky',41.449,-82.708],['Hillsdale',41.92,-84.63],['Swanton',41.589,-83.891],['Delta',41.574,-84.005]];
+
+let S={water:174,exag:40,az:300,el:14,mode:'both',stage:'erie'};
+let heights=null,lrm=null,ready=false,playing=false,localWater=null;
+
+// ---------- load tiles ----------
+async function loadTiles(){
+  const cv=document.createElement('canvas');cv.width=W;cv.height=H;const cx=cv.getContext('2d',{willReadFrequently:true});
+  let done=0;const total=(X1-X0+1)*(Y1-Y0+1);
+  const jobs=[];
+  for(let y=Y0;y<=Y1;y++)for(let x=X0;x<=X1;x++)jobs.push(new Promise((res,rej)=>{
+    const im=new Image();im.crossOrigin='anonymous';
+    im.onload=()=>{cx.drawImage(im,(x-X0)*TS,(y-Y0)*TS);$('prog').textContent=`${++done} / ${total} elevation tiles`;res()};
+    im.onerror=()=>rej(new Error('tile '+x+','+y));
+    im.src=`https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${Z}/${x}/${y}.png`;
+  }));
+  await Promise.all(jobs);
+  const px=cx.getImageData(0,0,W,H).data;heights=new Float32Array(N);
+  for(let i=0;i<N;i++)heights[i]=px[i*4]*256+px[i*4+1]+px[i*4+2]/256-32768;
+  // local relief model: h - mean(h) within radius R (integral image)
+  const R=9,I=new Float64Array((W+1)*(H+1));
+  for(let j=0;j<H;j++){let row=0;for(let i=0;i<W;i++){row+=heights[j*W+i];I[(j+1)*(W+1)+i+1]=I[j*(W+1)+i+1]+row}}
+  lrm=new Float32Array(N);
+  for(let j=0;j<H;j++){const a=Math.max(0,j-R),b=Math.min(H,j+R+1);for(let i=0;i<W;i++){const c=Math.max(0,i-R),d=Math.min(W,i+R+1);
+    const s=I[b*(W+1)+d]-I[a*(W+1)+d]-I[b*(W+1)+c]+I[a*(W+1)+c];lrm[j*W+i]=heights[j*W+i]-s/((b-a)*(d-c))}}
+}
+
+// ---------- three.js scene ----------
+const renderer=new THREE.WebGLRenderer({canvas:$('gl'),antialias:true,alpha:true});
+renderer.setPixelRatio(Math.min(2,devicePixelRatio));
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(38,1,1,20000);
+camera.position.set(-420,820,1500);
+const controls=new OrbitControls(camera,renderer.domElement);
+controls.enableDamping=true;controls.maxPolarAngle=1.42;controls.minDistance=120;controls.maxDistance=4200;controls.target.set(0,0,40);
+function resize(){renderer.setSize(innerWidth,innerHeight);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix()}
+addEventListener('resize',resize);resize();
+
+const U={uTex:{value:null},uTexel:{value:new THREE.Vector2(1/W,1/H)},uWater:{value:174},uK:{value:40/MPP},uBase:{value:BASE},
+  uSun:{value:new THREE.Vector3()},uTime:{value:0},uMode:{value:2}};
+
+const terrainVS=`
+attribute float aH;uniform float uWater,uK,uBase;varying vec2 vUv;varying vec3 vPos;
+void main(){vUv=uv;vec3 p=position;p.y=(max(aH,max(uWater,175.2))-uBase)*uK;vPos=p;gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.);}`;
+const terrainFS=`
+uniform sampler2D uTex;uniform vec2 uTexel;uniform float uWater,uK,uTime,uMode;uniform vec3 uSun;varying vec2 vUv;varying vec3 vPos;
+vec3 ramp(float h){
+  vec3 c=vec3(.06,.22,.26);
+  c=mix(c,vec3(.13,.36,.38),smoothstep(150.,172.,h));
+  c=mix(c,vec3(.86,.82,.70),smoothstep(172.,176.,h));
+  c=mix(c,vec3(.74,.78,.60),smoothstep(176.,190.,h));
+  c=mix(c,vec3(.60,.69,.50),smoothstep(190.,205.,h));
+  c=mix(c,vec3(.82,.74,.47),smoothstep(205.,222.,h));
+  c=mix(c,vec3(.80,.60,.36),smoothstep(222.,245.,h));
+  c=mix(c,vec3(.62,.44,.30),smoothstep(245.,280.,h));
+  c=mix(c,vec3(.44,.32,.26),smoothstep(280.,330.,h));
+  return c;}
+vec3 lrmRamp(float r){ // diverging: hollows blue, ridges gold
+  float t=clamp(r/3.5,-1.,1.);
+  vec3 neg=vec3(.20,.42,.62),mid=vec3(.80,.79,.74),pos=vec3(.93,.62,.18);
+  return t<0.?mix(mid,neg,-t):mix(mid,pos,t);}
+void main(){
+  float uW=max(uWater,175.2);
+  vec2 s=texture2D(uTex,vUv).rg;float h=s.r,r=s.g;
+  float hl=texture2D(uTex,vUv-vec2(uTexel.x,0.)).r,hr=texture2D(uTex,vUv+vec2(uTexel.x,0.)).r;
+  float hn=texture2D(uTex,vUv-vec2(0.,uTexel.y)).r,hs=texture2D(uTex,vUv+vec2(0.,uTexel.y)).r;
+  vec3 n=normalize(vec3((hl-hr)*uK,2.,(hn-hs)*uK));
+  float diff=max(dot(n,uSun),0.);
+  float shade=.30+.95*diff+.12*n.y;
+  vec3 base=uMode<.5?ramp(h):uMode<1.5?lrmRamp(r):mix(ramp(h),lrmRamp(r),.55*smoothstep(.3,2.5,abs(r)));
+  vec3 col=base*shade;
+  // 5 m contours
+  float ch=h/5.;float cl=abs(fract(ch-.5)-.5)/max(fwidth(ch),1e-4);
+  col*=1.-.16*(1.-min(cl,1.))*step(uW,h);
+  vec3 V=normalize(cameraPosition-vPos);
+  if(h<uW){
+    float d=uW-h;
+    vec3 wn=normalize(vec3(sin(vPos.x*.11+uTime*.9)*.03+sin(vPos.z*.07-uTime*.5)*.02,1.,cos(vPos.z*.09+uTime*.7)*.03));
+    vec3 shallow=vec3(.34,.62,.60),deep=vec3(.04,.17,.22);
+    vec3 wc=mix(shallow,deep,smoothstep(0.,28.,d));
+    float spec=pow(max(dot(reflect(-uSun,wn),V),0.),80.)*.9;
+    float fres=pow(1.-max(dot(wn,V),0.),3.)*.35;
+    col=mix(col*.85,wc,.55+.4*smoothstep(0.,8.,d))+spec+fres*vec3(.6,.75,.85);
+  }
+  // glowing shoreline at the current water level
+  float fw=max(fwidth(h),.02);float sl=1.-smoothstep(0.,fw*1.6,abs(h-uW));
+  col=mix(col,vec3(1.,.83,.45),sl*.95*step(uW,h+fw*2.)*step(175.6,uWater));
+  gl_FragColor=vec4(col,1.);
+}`;
+
+const wallVS=`
+attribute float aH,aTop,aShade;uniform float uWater,uK,uBase;varying float vY,vT,vS;
+void main(){vec3 p=position;float top=(max(aH,max(uWater,175.2))-uBase)*uK;p.y=aTop>.5?top:-26.;vY=p.y;vT=(aH-uBase)*uK;vS=aShade;
+gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.);}`;
+const wallFS=`
+varying float vY,vT,vS;
+void main(){
+  vec3 c;
+  if(vY>vT+.01){c=vec3(.16,.40,.43);} // water column
+  else{float b=fract(vY*.09);c=mix(vec3(.20,.16,.13),vec3(.27,.22,.17),step(.5,b));c*=mix(.55,1.,smoothstep(-26.,vT,vY));}
+  gl_FragColor=vec4(c*vS,1.);
+}`;
+
+let terrain,walls,tex;
+function build(){
+  const data=new Float32Array(N*2);for(let i=0;i<N;i++){data[i*2]=heights[i];data[i*2+1]=lrm[i]}
+  tex=new THREE.DataTexture(data,W,H,THREE.RGFormat,THREE.FloatType);
+  const lin=renderer.extensions.has('OES_texture_float_linear');
+  tex.magFilter=tex.minFilter=lin?THREE.LinearFilter:THREE.NearestFilter;tex.needsUpdate=true;U.uTex.value=tex;
+  const STEP=4,nx=W/STEP+1,ny=H/STEP+1,pos=new Float32Array(nx*ny*3),uv=new Float32Array(nx*ny*2),ah=new Float32Array(nx*ny);
+  const hAt=(i,j)=>heights[Math.min(H-1,j)*W+Math.min(W-1,i)];
+  for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){const k=j*nx+i,pi=i*STEP,pj=j*STEP;
+    pos[k*3]=pi-W/2;pos[k*3+2]=pj-H/2;uv[k*2]=Math.min(pi,W-1)/W+.5/W;uv[k*2+1]=Math.min(pj,H-1)/H+.5/H;ah[k]=hAt(pi,pj)}
+  const idx=new Uint32Array((nx-1)*(ny-1)*6);let t=0;
+  for(let j=0;j<ny-1;j++)for(let i=0;i<nx-1;i++){const a=j*nx+i,b=a+1,c=a+nx,d=c+1;idx.set([a,c,b,b,c,d],t);t+=6}
+  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(pos,3));g.setAttribute('uv',new THREE.BufferAttribute(uv,2));
+  g.setAttribute('aH',new THREE.BufferAttribute(ah,1));g.setIndex(new THREE.BufferAttribute(idx,1));
+  terrain=new THREE.Mesh(g,new THREE.ShaderMaterial({uniforms:U,vertexShader:terrainVS,fragmentShader:terrainFS}));scene.add(terrain);
+  // walls (diorama sides)
+  const wp=[],wh=[],wt=[],ws=[],wi=[];
+  const edge=(pts,shade)=>{const o=wp.length/3;pts.forEach(([i,j])=>{for(const top of [1,0]){wp.push(i-W/2,0,j-H/2);wh.push(hAt(i,j));wt.push(top);ws.push(shade)}});
+    for(let k=0;k<pts.length-1;k++){const a=o+k*2,b=a+1,c=a+2,d=a+3;wi.push(a,b,c,c,b,d)}};
+  const xs=[...Array(nx).keys()].map(i=>i*STEP),ys=[...Array(ny).keys()].map(j=>j*STEP);
+  edge(xs.map(i=>[i,H]),1.0);edge(xs.map(i=>[i,0]).reverse(),.6);edge(ys.map(j=>[0,j]),.75);edge(ys.map(j=>[W,j]).reverse(),.85);
+  const wg=new THREE.BufferGeometry();wg.setAttribute('position',new THREE.Float32BufferAttribute(wp,3));wg.setAttribute('aH',new THREE.Float32BufferAttribute(wh,1));
+  wg.setAttribute('aTop',new THREE.Float32BufferAttribute(wt,1));wg.setAttribute('aShade',new THREE.Float32BufferAttribute(ws,1));wg.setIndex(wi);
+  walls=new THREE.Mesh(wg,new THREE.ShaderMaterial({uniforms:U,vertexShader:wallVS,fragmentShader:wallFS,side:THREE.DoubleSide}));scene.add(walls);
+  buildStats();buildLabels();
+}
+
+// ---------- analytics ----------
+let binArea,landTotal=0,flatArea=0;const B0=165,B1=400,BS=.25,NB=Math.ceil((B1-B0)/BS);
+function buildStats(){
+  binArea=new Float64Array(NB);
+  for(let j=0;j<H;j++){const m=156543.03*Math.cos(rowLat(j+.5)*Math.PI/180)/(1<<Z),a=m*m/1e6;
+    for(let i=0;i<W;i++){const h=heights[j*W+i];if(h<ERIE)continue;landTotal+=a;if(h>=180&&h<215)flatArea+=a;
+      const b=Math.min(NB-1,Math.max(0,Math.floor((h-B0)/BS)));binArea[b]+=a}}
+  $('sFlat').textContent=`${(flatArea/landTotal*100).toFixed(0)}% of all land`;
+}
+function stats(w){
+  let a=0;const top=Math.floor((w-B0)/BS);for(let b=0;b<Math.min(NB,top);b++)a+=binArea[b];
+  $('sArea').textContent=a<1?'0 km²':`${Math.round(a).toLocaleString()} km²`;
+  $('sPct').textContent=`${(a/landTotal*100).toFixed(1)}%`;
+  const f=a/1054;$('sFulton').textContent=a<50?'—':`${f<10?f.toFixed(1):Math.round(f)} × Fulton County`;
+  drawHist(w);
+}
+function drawHist(w){
+  const cv=$('hist'),dpr=devicePixelRatio||1,Wc=cv.clientWidth,Hc=cv.clientHeight;cv.width=Wc*dpr;cv.height=Hc*dpr;
+  const c=cv.getContext('2d');c.scale(dpr,dpr);c.clearRect(0,0,Wc,Hc);
+  const lo=170,hi=330,bin=2,nb=(hi-lo)/bin,vals=new Float64Array(nb);
+  for(let b=0;b<NB;b++){const h=B0+b*BS;if(h<lo||h>=hi)continue;vals[Math.floor((h-lo)/bin)]+=binArea[b]}
+  const mx=Math.max(...vals),X=h=>(h-lo)/(hi-lo)*Wc,bot=Hc-16;
+  for(let k=0;k<nb;k++){const h=lo+k*bin,bh=vals[k]/mx*(bot-6);
+    c.fillStyle=h+bin<=w?'rgba(95,163,160,.95)':'rgba(239,233,220,.55)';c.fillRect(X(h)+.5,bot-bh,Math.max(1,Wc/nb-1),bh)}
+  c.fillStyle='rgba(239,233,220,.45)';c.font='10px Inter';c.textAlign='center';
+  for(let h=180;h<=320;h+=20)c.fillText(h+' m',X(h),Hc-3);
+  STAGES.forEach(s=>{c.fillStyle='rgba(226,180,92,.6)';c.fillRect(X(s.el)-.5,0,1,5)});
+  c.strokeStyle='#e2b45c';c.lineWidth=1.5;c.beginPath();c.moveTo(X(w),0);c.lineTo(X(w),bot);c.stroke();
+}
+$('hist').addEventListener('click',e=>{const r=e.target.getBoundingClientRect();const w=170+(e.clientX-r.left)/r.width*160;setWater(Math.round(w*2)/2,true)});
+
+// ---------- labels ----------
+let labelEls=[];
+function buildLabels(){
+  $('labels').innerHTML='';
+  labelEls=TOWNS.map(([n,lat,lng,home])=>{const [px,py]=toPx(lat,lng);if(px<0||py<0||px>=W||py>=H)return null;
+    const el=document.createElement('div');el.className='lbl'+(home?' home':'');el.innerHTML=`<span>${home?n+' · Fulton Co.':n}</span>`;$('labels').append(el);
+    return {el,px,py,h:heights[Math.floor(py)*W+Math.floor(px)]}}).filter(Boolean);
+}
+const v3=new THREE.Vector3();
+function placeLabels(){
+  const w=U.uWater.value,k=U.uK.value;
+  labelEls.forEach(L=>{v3.set(L.px-W/2,(Math.max(L.h,w,ERIE)-BASE)*k+2,L.py-H/2).project(camera);
+    if(v3.z>1){L.el.style.display='none';return}L.el.style.display='';
+    L.el.style.left=((v3.x+1)/2*innerWidth)+'px';L.el.style.top=((1-v3.y)/2*innerHeight)+'px';L.el.style.opacity=L.h<w-.5?.45:1});
+}
+
+// ---------- controls & state ----------
+function sunVec(){const a=S.az*Math.PI/180,e=S.el*Math.PI/180;U.uSun.value.set(Math.sin(a)*Math.cos(e),Math.sin(e),-Math.cos(a)*Math.cos(e)).normalize()}
+function setWater(w,commit){localWater=w;U.uWater.value=w;$('water').value=w;$('wl').innerHTML=`${w.toFixed(1)}<small>m above sea level</small>`;
+  $('wlbl').textContent=`${Math.round(w*3.281)} ft`;if(heights)stats(w);
+  const st=STAGES.reduce((b,s)=>Math.abs(s.el-w)<Math.abs(b.el-w)?s:b);markStage(Math.abs(st.el-w)<1.5?st.id:null);
+  if(commit)jelly.call('set',{key:'water',value:w});}
+function markStage(id){document.querySelectorAll('#stageList li').forEach(li=>li.classList.toggle('on',li.dataset.id===id));
+  const s=STAGES.find(x=>x.id===id);$('caption').style.opacity=s?1:0;if(s){$('capT').textContent=s.name;$('capS').textContent=`${s.age} · ${s.d}`}}
+$('stageList').innerHTML=STAGES.map(s=>`<li id="st-${s.id}" data-id="${s.id}"><i></i><div><div class="nm">${s.name}</div><div class="ds">${s.age}</div></div><div class="el mono">${s.el} m<br>${Math.round(s.el*3.281)} ft</div></li>`).join('');
+document.querySelectorAll('#stageList li').forEach(li=>li.onclick=()=>{stopPlay();animateWater(STAGES.find(s=>s.id===li.dataset.id).el,1600,true)});
+$('water').oninput=e=>{stopPlay();setWater(+e.target.value,false)};$('water').onchange=e=>setWater(+e.target.value,true);
+const bindCtl=(id,key,fmt)=>{$(id).oninput=e=>{S[key]=+e.target.value;applyRender();};$(id).onchange=e=>jelly.call('set',{key,value:+e.target.value})};
+bindCtl('exag','exag');bindCtl('az','az');bindCtl('el','el');
+document.querySelectorAll('#mode button').forEach(b=>b.onclick=()=>jelly.call('set',{key:'mode',value:b.dataset.m}));
+function applyRender(){U.uK.value=S.exag/MPP;sunVec();U.uMode.value={terrain:0,lrm:1,both:2}[S.mode];
+  $('exagV').textContent=S.exag+'×';$('azV').textContent=S.az+'°';$('elV').textContent=S.el+'°';
+  $('exag').value=S.exag;$('az').value=S.az;$('el').value=S.el;
+  document.querySelectorAll('#mode button').forEach(b=>b.classList.toggle('on',b.dataset.m===S.mode));}
+
+let anim=null;
+function animateWater(target,ms,commit){const from=U.uWater.value,t0=performance.now();anim={from,target,t0,ms,commit}}
+function stopPlay(){playing=false;$('play').textContent='▶ Drain the lakes'}
+$('play').onclick=async()=>{
+  if(playing){stopPlay();return}
+  playing=true;$('play').textContent='❚❚ Pause';
+  setWater(258,false);
+  for(const s of STAGES){if(!playing)return;animateWater(s.el,s.id==='maumee'?2200:3200,false);await wait(s.id==='maumee'?2200:3200);if(!playing)return;await wait(2600)}
+  if(playing){stopPlay();jelly.call('set',{key:'water',value:174})}
+};
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+
+jelly.onState(s=>{S=s;applyRender();if(!playing&&!anim&&s.water!==localWater)setWater(s.water,false)});
+
+// ---------- loop ----------
+const clock=new THREE.Clock();
+function frame(){
+  requestAnimationFrame(frame);U.uTime.value=clock.getElapsedTime();
+  if(anim){const k=Math.min(1,(performance.now()-anim.t0)/anim.ms),e=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2;
+    setWater(Math.round((anim.from+(anim.target-anim.from)*e)*10)/10,false);if(k>=1){const a=anim;anim=null;if(a.commit)setWater(a.target,true)}}
+  controls.update();renderer.render(scene,camera);if(ready)placeLabels();
+}
+applyRender();
+loadTiles().then(()=>{build();ready=true;setWater(S.water,false);$('loading').style.opacity=0;frame()})
+  .catch(e=>{$('prog').textContent='Could not load elevation: '+e.message});
+</script></body></html>
